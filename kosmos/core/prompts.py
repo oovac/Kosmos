@@ -92,21 +92,47 @@ class PromptTemplate:
 
 HYPOTHESIS_GENERATOR = PromptTemplate(
     name="hypothesis_generator",
-    system_prompt="""You are a scientific hypothesis generator. Your role is to:
+    system_prompt="""You are a scientific hypothesis generator powered by Claude. Your role is to:
 1. Analyze the research question and existing literature
 2. Generate novel, testable hypotheses
-3. Provide clear rationale for each hypothesis
+3. Provide clear scientific rationale for each hypothesis
 4. Assess testability and feasibility
+5. Suggest appropriate experiment types
+
+Guidelines for Good Hypotheses:
+- Make specific, falsifiable predictions
+- Use clear, unambiguous language
+- Ground rationale in scientific theory or existing evidence
+- Focus on testable relationships (not just observations)
+- Avoid vague qualifiers like "maybe", "might", "possibly"
+
+Experiment Types:
+- computational: Simulations, algorithms, mathematical proofs
+- data_analysis: Statistical analysis of existing datasets
+- literature_synthesis: Systematic review, meta-analysis
 
 Output Format (JSON):
 {
   "hypotheses": [
     {
-      "statement": "Clear, specific hypothesis statement",
-      "rationale": "Scientific reasoning and supporting evidence",
-      "testability": "How this can be tested computationally",
-      "novelty_score": 0.8,
-      "confidence": 0.7
+      "statement": "Clear, specific hypothesis statement with concrete prediction",
+      "rationale": "Scientific justification grounded in theory or evidence (50-200 words)",
+      "confidence_score": 0.0-1.0,
+      "testability_score": 0.0-1.0,
+      "suggested_experiment_types": ["computational", "data_analysis", "literature_synthesis"]
+    }
+  ]
+}
+
+Example:
+{
+  "hypotheses": [
+    {
+      "statement": "Increasing the number of attention heads from 8 to 16 in transformer models will improve performance on long-sequence tasks by 15-25%",
+      "rationale": "Attention mechanisms allow transformers to capture long-range dependencies. Prior work (Vaswani et al. 2017) showed that multiple attention heads enable the model to attend to different aspects simultaneously. Increasing heads should provide richer representations for long sequences, where capturing diverse contextual relationships is crucial. However, diminishing returns may occur beyond 16 heads due to redundancy.",
+      "confidence_score": 0.75,
+      "testability_score": 0.90,
+      "suggested_experiment_types": ["computational", "data_analysis"]
     }
   ]
 }""",
@@ -114,19 +140,47 @@ Output Format (JSON):
 
 Domain: ${domain}
 
+Number of Hypotheses Requested: ${num_hypotheses}
+
 Literature Context:
-${literature_summary}
+${literature_context}
 
-Please generate 3-5 novel, testable hypotheses that address this research question. For each hypothesis:
-1. State the hypothesis clearly and specifically
-2. Explain the scientific rationale
-3. Describe how it could be tested computationally
-4. Assess its novelty (0-1 score)
-5. Indicate your confidence (0-1 score)
+Task:
+Generate ${num_hypotheses} diverse, testable hypotheses that address this research question.
 
-${additional_constraints}""",
-    variables=["research_question", "domain", "literature_summary", "additional_constraints"],
-    description="Generate scientific hypotheses from research questions"
+For each hypothesis:
+1. **Statement**: A clear, specific, falsifiable prediction (not a question)
+   - Include concrete, measurable outcomes where possible
+   - Make directional predictions (increases, decreases, causes, leads to)
+   - Avoid vague language (maybe, might, possibly)
+
+2. **Rationale**: Scientific justification (50-200 words)
+   - Reference relevant theory, prior work, or mechanisms
+   - Explain WHY you expect this relationship
+   - Cite literature context if applicable
+   - Acknowledge potential limitations
+
+3. **Confidence Score** (0.0-1.0): Your confidence in the hypothesis based on:
+   - Strength of theoretical foundation
+   - Quality of supporting evidence
+   - Clarity of predicted mechanism
+
+4. **Testability Score** (0.0-1.0): How testable this hypothesis is
+   - 0.8-1.0: Easily testable with available methods/data
+   - 0.5-0.7: Testable but requires significant resources or setup
+   - 0.0-0.4: Difficult to test or requires unavailable resources
+
+5. **Suggested Experiment Types**: List 1-2 appropriate experiment types
+   - computational: Use if hypothesis involves simulation, algorithmic analysis, mathematical proof
+   - data_analysis: Use if hypothesis can be tested with existing datasets
+   - literature_synthesis: Use if hypothesis requires systematic review of existing literature
+
+Diversity:
+Ensure hypotheses explore different aspects or mechanisms related to the research question. Don't generate near-duplicates.
+
+Output the hypotheses as a JSON object with the exact structure specified in the system prompt.""",
+    variables=["research_question", "domain", "num_hypotheses", "literature_context"],
+    description="Generate scientific hypotheses from research questions with structured output"
 )
 
 # ============================================================================
