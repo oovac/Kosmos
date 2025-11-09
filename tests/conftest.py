@@ -305,14 +305,14 @@ def reset_singletons():
     # Reset singletons after test
     from kosmos.knowledge.graph import reset_knowledge_graph
     from kosmos.knowledge.vector_db import reset_vector_db
-    from kosmos.knowledge.embeddings import reset_embeddings
+    from kosmos.knowledge.embeddings import reset_embedder
     from kosmos.knowledge.concept_extractor import reset_concept_extractor
     from kosmos.literature.reference_manager import reset_reference_manager
 
     try:
         reset_knowledge_graph()
         reset_vector_db()
-        reset_embeddings()
+        reset_embedder()
         reset_concept_extractor()
         reset_reference_manager()
     except Exception:
