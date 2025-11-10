@@ -18,7 +18,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class KEGGClient:
             data = self._parse_kegg_entry(response.text)
             return data
 
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, RetryError, Exception) as e:
             logger.error(f"KEGG API error for {compound_id}: {e}")
             return None
 
@@ -425,7 +425,7 @@ class ENCODEClient:
         assay_type: str,
         biosample: str,
         limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> Optional[Dict[str, Any]]:
         """
         Search for experiments in ENCODE.
 
@@ -435,7 +435,7 @@ class ENCODEClient:
             limit: Max results
 
         Returns:
-            List of experiment dicts
+            Search results dict or None
         """
         try:
             url = f"{self.BASE_URL}/search/"
@@ -451,11 +451,11 @@ class ENCODEClient:
             response.raise_for_status()
 
             data = response.json()
-            return data.get('@graph', [])
+            return data
 
         except Exception as e:
             logger.error(f"ENCODE search error: {e}")
-            return []
+            return None
 
     def close(self):
         """Close HTTP client."""

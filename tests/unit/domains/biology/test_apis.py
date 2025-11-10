@@ -175,13 +175,19 @@ class TestGTExClient:
 
     def test_get_eqtl_success(self, mock_httpx_client):
         """Test successful eQTL retrieval."""
-        mock_httpx_client.json.return_value = {
+        # Need to set up the response correctly for get().json() chain
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
             "data": [{
                 "variantId": "chr10_114758349_C_T_b38",
                 "geneSymbol": "TCF7L2",
-                "pValue": 1.5e-8
+                "pValue": 1.5e-8,
+                "slope": 0.5,
+                "effectSize": 0.3
             }]
         }
+        mock_httpx_client.get.return_value = mock_response
 
         with patch('httpx.Client', return_value=mock_httpx_client):
             client = GTExClient()
@@ -191,13 +197,17 @@ class TestGTExClient:
 
     def test_tissue_filtering(self, mock_httpx_client):
         """Test tissue-specific eQTL queries."""
-        mock_httpx_client.json.return_value = {"data": []}
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": []}
+        mock_httpx_client.get.return_value = mock_response
 
         with patch('httpx.Client', return_value=mock_httpx_client):
             client = GTExClient()
             result = client.get_eqtl("chr10_114758349_C_T_b38", gene_id="ENSG00000148737", tissue="Pancreas")
 
-            assert result is not None
+            # Empty data should return None
+            assert result is None
 
     def test_gene_expression(self, mock_httpx_client):
         """Test gene expression queries."""
@@ -232,20 +242,24 @@ class TestENCODEClient:
 
     def test_search_experiments_success(self, mock_httpx_client):
         """Test successful experiment search."""
-        mock_httpx_client.json.return_value = {
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
             "@graph": [{
                 "accession": "ENCSR000AAA",
                 "assay_title": "ATAC-seq",
                 "biosample_summary": "pancreas"
             }]
         }
+        mock_response.raise_for_status = Mock()
+        mock_httpx_client.get.return_value = mock_response
 
         with patch('httpx.Client', return_value=mock_httpx_client):
             client = ENCODEClient()
             result = client.search_experiments(assay_type="ATAC-seq", biosample="pancreas")
 
             assert result is not None
-            assert "@graph" in result or isinstance(result, list)
+            assert "@graph" in result
 
     def test_assay_filtering(self, mock_httpx_client):
         """Test assay type filtering."""
