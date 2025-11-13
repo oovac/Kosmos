@@ -418,7 +418,7 @@ Example results structure:
 
 - **Issues**: [GitHub Issues](https://github.com/your-org/kosmos/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/your-org/kosmos/discussions)
-- **Discord**: [Community Server](https://discord.gg/your-invite)
+- **Discord**: [Community Server](https://github.com/jimmc414/Kosmos/discussions)
 
 ---
 

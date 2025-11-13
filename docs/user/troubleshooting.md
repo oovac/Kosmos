@@ -521,7 +521,7 @@ If issues persist:
 
 5. **Community:**
    - Discussions: https://github.com/your-org/kosmos/discussions
-   - Discord: https://discord.gg/your-invite
+   - Discord: https://github.com/jimmc414/Kosmos/discussions
 
 ---
 
