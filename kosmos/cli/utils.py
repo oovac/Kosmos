@@ -256,15 +256,8 @@ def get_db_session():
     """
     from kosmos.db import get_session
 
-    session = get_session()
-    try:
+    with get_session() as session:
         yield session
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        raise
-    finally:
-        session.close()
 
 
 def validate_run_id(run_id: str) -> bool:
