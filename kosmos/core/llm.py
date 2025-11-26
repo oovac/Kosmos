@@ -28,6 +28,8 @@ except ImportError:
     print("Warning: anthropic package not installed. Install with: pip install anthropic")
 
 from kosmos.core.claude_cache import get_claude_cache, ClaudeCache
+from kosmos.core.utils.json_parser import parse_json_response, JSONParseError
+from kosmos.core.providers.base import ProviderAPIError
 from kosmos.core.providers.base import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -436,23 +438,19 @@ class ClaudeClient:
             system=json_system,
         )
 
-        # Parse JSON
+        # Parse JSON with robust fallback strategies
         try:
-            # Try to extract JSON from markdown code blocks if present
-            if "```json" in response_text:
-                json_start = response_text.find("```json") + 7
-                json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
-            elif "```" in response_text:
-                json_start = response_text.find("```") + 3
-                json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
-
-            return json.loads(response_text)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Claude response: {e}")
+            return parse_json_response(response_text, schema=output_schema)
+        except JSONParseError as e:
+            logger.error(f"Failed to parse JSON after {e.attempts} attempts")
             logger.error(f"Response text: {response_text[:500]}")
-            raise ValueError(f"Claude did not return valid JSON: {e}")
+            # JSON parse errors are NOT recoverable - retrying won't help
+            raise ProviderAPIError(
+                "claude",
+                f"Invalid JSON response: {e.message}",
+                raw_error=e,
+                recoverable=False
+            )
 
     def get_usage_stats(self) -> Dict[str, Any]:
         """

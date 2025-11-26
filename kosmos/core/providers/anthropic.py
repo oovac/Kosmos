@@ -22,6 +22,7 @@ from kosmos.core.providers.base import (
     LLMResponse,
     ProviderAPIError
 )
+from kosmos.core.utils.json_parser import parse_json_response, JSONParseError
 from kosmos.core.claude_cache import get_claude_cache, ClaudeCache
 from datetime import datetime
 
@@ -423,23 +424,20 @@ class AnthropicProvider(LLMProvider):
 
             response_text = response.content
 
-            # Parse JSON (handle markdown code blocks)
+            # Parse JSON with robust fallback strategies
             try:
-                if "```json" in response_text:
-                    json_start = response_text.find("```json") + 7
-                    json_end = response_text.find("```", json_start)
-                    response_text = response_text[json_start:json_end].strip()
-                elif "```" in response_text:
-                    json_start = response_text.find("```") + 3
-                    json_end = response_text.find("```", json_start)
-                    response_text = response_text[json_start:json_end].strip()
+                return parse_json_response(response_text, schema=schema)
 
-                return json.loads(response_text)
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON: {e}")
+            except JSONParseError as e:
+                logger.error(f"Failed to parse JSON after {e.attempts} attempts")
                 logger.error(f"Response text: {response_text[:500]}")
-                raise ProviderAPIError("anthropic", f"Invalid JSON response: {e}", raw_error=e)
+                # JSON parse errors are NOT recoverable - retrying won't help
+                raise ProviderAPIError(
+                    "anthropic",
+                    f"Invalid JSON response: {e.message}",
+                    raw_error=e,
+                    recoverable=False
+                )
 
         except Exception as e:
             if isinstance(e, ProviderAPIError):

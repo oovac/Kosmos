@@ -605,6 +605,79 @@ class PerformanceConfig(BaseSettings):
     model_config = SettingsConfigDict(populate_by_name=True)
 
 
+class LocalModelConfig(BaseSettings):
+    """Configuration for local models (Ollama, LM Studio, etc.).
+
+    These settings optimize behavior when using local LLM providers
+    that may have different characteristics than cloud APIs.
+    """
+
+    # Retry configuration
+    max_retries: int = Field(
+        default=1,
+        ge=0,
+        le=5,
+        description="Maximum retry attempts for local models (lower than cloud)",
+        alias="LOCAL_MODEL_MAX_RETRIES"
+    )
+
+    # JSON parsing
+    strict_json: bool = Field(
+        default=False,
+        description="Require strict JSON compliance (False allows lenient parsing)",
+        alias="LOCAL_MODEL_STRICT_JSON"
+    )
+
+    json_retry_with_hint: bool = Field(
+        default=True,
+        description="On JSON parse failure, retry with explicit formatting hint",
+        alias="LOCAL_MODEL_JSON_RETRY_HINT"
+    )
+
+    # Timeouts and resource management
+    request_timeout: int = Field(
+        default=120,
+        ge=30,
+        le=600,
+        description="Timeout for local model requests in seconds",
+        alias="LOCAL_MODEL_REQUEST_TIMEOUT"
+    )
+
+    concurrent_requests: int = Field(
+        default=1,
+        ge=1,
+        le=4,
+        description="Max concurrent requests to local model (limited by VRAM)",
+        alias="LOCAL_MODEL_CONCURRENT_REQUESTS"
+    )
+
+    # Graceful degradation
+    fallback_to_unstructured: bool = Field(
+        default=True,
+        description="On structured output failure, try unstructured extraction",
+        alias="LOCAL_MODEL_FALLBACK_UNSTRUCTURED"
+    )
+
+    # Circuit breaker settings
+    circuit_breaker_threshold: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Consecutive failures before circuit breaker opens",
+        alias="LOCAL_MODEL_CB_THRESHOLD"
+    )
+
+    circuit_breaker_reset_timeout: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="Seconds before circuit breaker allows retry",
+        alias="LOCAL_MODEL_CB_RESET_TIMEOUT"
+    )
+
+    model_config = SettingsConfigDict(populate_by_name=True)
+
+
 class MonitoringConfig(BaseSettings):
     """Monitoring and metrics configuration."""
 
@@ -743,6 +816,7 @@ class KosmosConfig(BaseSettings):
     claude: Optional[ClaudeConfig] = Field(default_factory=_optional_claude_config)  # Backward compatibility
     anthropic: Optional[AnthropicConfig] = Field(default_factory=_optional_anthropic_config)  # New name (optional, defaults to claude)
     openai: Optional[OpenAIConfig] = Field(default_factory=_optional_openai_config)  # OpenAI provider config
+    local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)  # Local model settings (Ollama, etc.)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)

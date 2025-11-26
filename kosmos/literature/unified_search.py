@@ -391,6 +391,9 @@ class UnifiedLiteratureSearch:
                 continue
 
             # Check title similarity (fuzzy match)
+            # Skip papers without titles - they can't be properly deduplicated
+            if not paper.title:
+                continue
             title_norm = self._normalize_title(paper.title)
             if title_norm in seen_titles:
                 continue
@@ -407,8 +410,10 @@ class UnifiedLiteratureSearch:
             title: Paper title
 
         Returns:
-            Normalized title
+            Normalized title (empty string if title is None)
         """
+        if not title:
+            return ""
         import re
         # Lowercase, remove punctuation, extra spaces
         title = title.lower()
@@ -435,16 +440,21 @@ class UnifiedLiteratureSearch:
         query_terms = set(query.lower().split())
 
         def score_paper(paper: PaperMetadata) -> float:
+            # Skip None papers
+            if paper is None:
+                return 0.0
+
             score = 0.0
 
             # Citation score (normalized, max 100 points)
-            if paper.citation_count > 0:
+            if paper.citation_count and paper.citation_count > 0:
                 score += min(paper.citation_count / 10.0, 100.0)
 
             # Title relevance (max 50 points)
-            title_terms = set(paper.title.lower().split())
-            title_overlap = len(query_terms & title_terms) / max(len(query_terms), 1)
-            score += title_overlap * 50.0
+            if paper.title:
+                title_terms = set(paper.title.lower().split())
+                title_overlap = len(query_terms & title_terms) / max(len(query_terms), 1)
+                score += title_overlap * 50.0
 
             # Abstract relevance (max 30 points)
             if paper.abstract:

@@ -23,6 +23,7 @@ from kosmos.core.providers.base import (
     LLMResponse,
     ProviderAPIError
 )
+from kosmos.core.utils.json_parser import parse_json_response, JSONParseError
 
 logger = logging.getLogger(__name__)
 
@@ -385,27 +386,48 @@ class OpenAIProvider(LLMProvider):
 
             response_text = response.content
 
-            # Parse JSON (handle markdown code blocks)
+            # Parse JSON with robust fallback strategies
             try:
-                if "```json" in response_text:
-                    json_start = response_text.find("```json") + 7
-                    json_end = response_text.find("```", json_start)
-                    response_text = response_text[json_start:json_end].strip()
-                elif "```" in response_text:
-                    json_start = response_text.find("```") + 3
-                    json_end = response_text.find("```", json_start)
-                    response_text = response_text[json_start:json_end].strip()
+                return parse_json_response(response_text, schema=schema)
 
-                return json.loads(response_text)
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON: {e}")
+            except JSONParseError as e:
+                logger.error(f"Failed to parse JSON after {e.attempts} attempts")
                 logger.error(f"Response text: {response_text[:500]}")
-                raise ProviderAPIError("openai", f"Invalid JSON response: {e}", raw_error=e)
+
+                # Provide helpful guidance for local model issues
+                if self.provider_type == 'local':
+                    logger.error(
+                        f"\n{'='*60}\n"
+                        f"JSON parsing failed with local model ({self.model}).\n"
+                        f"Local models may not reliably produce structured JSON output.\n\n"
+                        f"Suggestions:\n"
+                        f"  1. Try a larger model (e.g., llama3.1:70b instead of :8b)\n"
+                        f"  2. Set LOCAL_MODEL_STRICT_JSON=false for lenient parsing\n"
+                        f"  3. Use a cloud provider for complex structured outputs\n"
+                        f"  4. Simplify the JSON schema if possible\n"
+                        f"{'='*60}"
+                    )
+
+                # JSON parse errors are NOT recoverable - retrying won't help
+                raise ProviderAPIError(
+                    "openai",
+                    f"Invalid JSON response: {e.message}",
+                    raw_error=e,
+                    recoverable=False
+                )
 
         except Exception as e:
             if isinstance(e, ProviderAPIError):
                 raise
+
+            # Provide helpful guidance for timeout errors with local models
+            error_str = str(e).lower()
+            if self.provider_type == 'local' and 'timeout' in error_str:
+                logger.error(
+                    f"Request to local model ({self.model}) timed out.\n"
+                    f"Consider increasing LOCAL_MODEL_REQUEST_TIMEOUT or using a smaller model."
+                )
+
             logger.error(f"Structured generation failed: {e}")
             raise ProviderAPIError("openai", f"Structured generation failed: {e}", raw_error=e)
 

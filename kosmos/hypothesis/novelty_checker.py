@@ -138,11 +138,11 @@ class NoveltyChecker:
             similar_hypotheses=similar_hypotheses
         )
 
-        # Step 7: Prepare similar work details
+        # Step 7: Prepare similar work details (filter out None papers)
         similar_papers_info = [
             {
-                "title": paper.title,
-                "authors": paper.authors[:3],  # First 3 authors
+                "title": paper.title or "Untitled",
+                "authors": (paper.authors or [])[:3],  # First 3 authors
                 "year": paper.year,
                 "source": paper.source,
                 "similarity": self._compute_similarity(hypothesis, paper),
@@ -150,6 +150,7 @@ class NoveltyChecker:
                 "arxiv_id": paper.arxiv_id
             }
             for paper in similar_papers[:self.max_similar_papers]
+            if paper is not None and paper.title
         ]
 
         similar_hypotheses_info = [
@@ -318,13 +319,20 @@ class NoveltyChecker:
             float: Similarity score (0.0-1.0)
         """
         try:
+            # Guard against None paper or missing title
+            if paper is None or not paper.title:
+                return 0.0
+
+            paper_title = paper.title or ""
+            paper_abstract = paper.abstract or ""
+
             if not self.embedder:
                 # Fallback: simple keyword overlap
-                return self._keyword_similarity(hypothesis.statement, paper.title + " " + (paper.abstract or ""))
+                return self._keyword_similarity(hypothesis.statement, paper_title + " " + paper_abstract)
 
             # Use embeddings for semantic similarity
             hyp_text = f"{hypothesis.statement}. {hypothesis.rationale}"
-            paper_text = f"{paper.title}. {paper.abstract or ''}"
+            paper_text = f"{paper_title}. {paper_abstract}"
 
             hyp_embedding = self.embedder.embed_text(hyp_text)
             paper_embedding = self.embedder.embed_text(paper_text)

@@ -18,6 +18,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 
+from kosmos.core.providers.base import ProviderAPIError
+
 logger = logging.getLogger(__name__)
 
 
@@ -297,6 +299,7 @@ class DelegationManager:
 
         # Try execution with retries
         last_error = None
+        last_exception = None
         start_time = datetime.now()
 
         for attempt in range(self.max_retries + 1):
@@ -320,14 +323,27 @@ class DelegationManager:
 
             except asyncio.TimeoutError:
                 last_error = f"Task timeout after {self.task_timeout}s"
+                last_exception = None
                 logger.warning(f"Task {task_id} timeout (attempt {attempt+1})")
 
             except Exception as e:
                 last_error = str(e)
+                last_exception = e
                 logger.warning(f"Task {task_id} failed (attempt {attempt+1}): {e}")
+
+                # Check if error is non-recoverable (don't retry)
+                if isinstance(e, ProviderAPIError) and not e.is_recoverable():
+                    logger.info(f"Task {task_id} failed with non-recoverable error, not retrying")
+                    break
 
             # Track retry
             self.task_retries[task_id] = attempt + 1
+
+            # Small delay before retry (exponential backoff: 1s, 2s, 4s...)
+            if attempt < self.max_retries:
+                delay = min(2 ** attempt, 8)  # Cap at 8 seconds
+                logger.debug(f"Waiting {delay}s before retry")
+                await asyncio.sleep(delay)
 
         # All retries exhausted
         execution_time = (datetime.now() - start_time).total_seconds()

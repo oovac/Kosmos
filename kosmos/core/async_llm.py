@@ -34,7 +34,130 @@ try:
 except ImportError:
     TENACITY_AVAILABLE = False
 
+from kosmos.core.providers.base import ProviderAPIError
+
 logger = logging.getLogger(__name__)
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker pattern for LLM API calls.
+
+    Prevents cascading failures by stopping requests after consecutive failures.
+    States:
+    - CLOSED: Normal operation, requests allowed
+    - OPEN: Too many failures, requests blocked
+    - HALF_OPEN: Testing if service recovered
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 3,
+        reset_timeout: float = 60.0,
+        half_open_max_calls: int = 1
+    ):
+        self.failure_threshold = failure_threshold
+        self.reset_timeout = reset_timeout
+        self.half_open_max_calls = half_open_max_calls
+
+        self.failure_count = 0
+        self.last_failure_time: Optional[float] = None
+        self.state = "CLOSED"
+        self.half_open_calls = 0
+        self._lock = asyncio.Lock()
+
+    async def can_execute(self) -> bool:
+        """Check if a request can be executed."""
+        async with self._lock:
+            if self.state == "CLOSED":
+                return True
+
+            if self.state == "OPEN":
+                # Check if reset timeout has passed
+                if self.last_failure_time and \
+                   time.time() - self.last_failure_time >= self.reset_timeout:
+                    self.state = "HALF_OPEN"
+                    self.half_open_calls = 0
+                    logger.info("Circuit breaker entering HALF_OPEN state")
+                    return True
+                return False
+
+            if self.state == "HALF_OPEN":
+                # Allow limited calls in half-open state
+                if self.half_open_calls < self.half_open_max_calls:
+                    self.half_open_calls += 1
+                    return True
+                return False
+
+            return False
+
+    async def record_success(self):
+        """Record a successful request."""
+        async with self._lock:
+            self.failure_count = 0
+            if self.state == "HALF_OPEN":
+                self.state = "CLOSED"
+                logger.info("Circuit breaker CLOSED after successful request")
+
+    async def record_failure(self, error: Exception):
+        """Record a failed request."""
+        async with self._lock:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+
+            if self.state == "HALF_OPEN":
+                # Immediate open on failure in half-open state
+                self.state = "OPEN"
+                logger.warning("Circuit breaker re-OPENED after failure in HALF_OPEN state")
+            elif self.failure_count >= self.failure_threshold:
+                self.state = "OPEN"
+                logger.warning(
+                    f"Circuit breaker OPENED after {self.failure_count} consecutive failures"
+                )
+
+    def is_open(self) -> bool:
+        """Check if circuit breaker is open (blocking requests)."""
+        return self.state == "OPEN"
+
+    def get_state(self) -> Dict[str, Any]:
+        """Get circuit breaker state info."""
+        return {
+            "state": self.state,
+            "failure_count": self.failure_count,
+            "failure_threshold": self.failure_threshold,
+            "last_failure_time": self.last_failure_time,
+        }
+
+
+def is_recoverable_error(error: Exception) -> bool:
+    """
+    Check if an error is recoverable (worth retrying).
+
+    Args:
+        error: The exception to check
+
+    Returns:
+        True if error might succeed on retry
+    """
+    # Check ProviderAPIError's recoverable flag
+    if isinstance(error, ProviderAPIError):
+        return error.is_recoverable()
+
+    # Anthropic SDK errors
+    if isinstance(error, RateLimitError):
+        return True  # Always retry rate limits
+    if isinstance(error, APITimeoutError):
+        return True  # Network timeouts are recoverable
+    if isinstance(error, APIError):
+        # Check error message for hints
+        error_str = str(error).lower()
+        non_recoverable = ['invalid', 'authentication', 'unauthorized', 'forbidden']
+        if any(term in error_str for term in non_recoverable):
+            return False
+        return True  # Default to recoverable for API errors
+
+    # Default: unknown errors are potentially recoverable
+    return True
 
 
 @dataclass
@@ -200,6 +323,12 @@ class AsyncClaudeClient:
             max_concurrent=max_concurrent
         )
 
+        # Initialize circuit breaker
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=3,
+            reset_timeout=60.0
+        )
+
         # Statistics
         self.total_requests = 0
         self.total_input_tokens = 0
@@ -257,6 +386,15 @@ class AsyncClaudeClient:
                 logger.debug("Cache hit for async request")
                 return cached['response']
 
+        # Check circuit breaker before proceeding
+        if not await self.circuit_breaker.can_execute():
+            logger.warning("Circuit breaker is OPEN, request blocked")
+            raise ProviderAPIError(
+                "anthropic",
+                "Circuit breaker is open - too many consecutive failures",
+                recoverable=True  # Will be retryable after timeout
+            )
+
         # Acquire rate limit
         await self.rate_limiter.acquire()
         start_time = time.time()
@@ -268,6 +406,17 @@ class AsyncClaudeClient:
             # Build message
             messages = [{"role": "user", "content": prompt}]
 
+            # Custom retry predicate that checks recoverability
+            def should_retry(retry_state):
+                """Only retry recoverable errors."""
+                if retry_state.outcome.failed:
+                    error = retry_state.outcome.exception()
+                    recoverable = is_recoverable_error(error)
+                    if not recoverable:
+                        logger.info(f"Not retrying non-recoverable error: {error}")
+                    return recoverable
+                return False
+
             # Call Claude API with timeout and retry logic
             async def _api_call_with_retry():
                 """Inner function with retry decorator."""
@@ -276,7 +425,7 @@ class AsyncClaudeClient:
                     @retry(
                         stop=stop_after_attempt(3),
                         wait=wait_exponential(multiplier=1, min=2, max=30),
-                        retry=retry_if_exception_type((APIError, APITimeoutError, RateLimitError)),
+                        retry=should_retry,  # Use custom predicate
                         before_sleep=before_sleep_log(logger, logging.WARNING),
                         reraise=True
                     )
@@ -309,6 +458,7 @@ class AsyncClaudeClient:
                 )
             except asyncio.TimeoutError:
                 logger.error(f"LLM API call timed out after {timeout_seconds}s")
+                await self.circuit_breaker.record_failure(APITimeoutError("timeout"))
                 raise APITimeoutError(f"API call exceeded timeout of {timeout_seconds}s")
 
             # Update statistics
@@ -342,14 +492,19 @@ class AsyncClaudeClient:
                 f"({len(text)} chars)"
             )
 
+            # Record success with circuit breaker
+            await self.circuit_breaker.record_success()
+
             return text
 
-        except (APIError, APITimeoutError, RateLimitError) as e:
+        except (APIError, APITimeoutError, RateLimitError, ProviderAPIError) as e:
             self.failed_requests += 1
+            await self.circuit_breaker.record_failure(e)
             logger.error(f"Async generation failed after retries: {e}")
             raise
         except Exception as e:
             self.failed_requests += 1
+            await self.circuit_breaker.record_failure(e)
             logger.error(f"Async generation failed: {e}")
             raise
 

@@ -345,6 +345,7 @@ class ProviderAPIError(Exception):
         message: Error message
         status_code: HTTP status code (if applicable)
         raw_error: Original error object
+        recoverable: Whether this error can be retried
     """
 
     def __init__(
@@ -352,11 +353,54 @@ class ProviderAPIError(Exception):
         provider: str,
         message: str,
         status_code: Optional[int] = None,
-        raw_error: Optional[Exception] = None
+        raw_error: Optional[Exception] = None,
+        recoverable: bool = True
     ):
         self.provider = provider
         self.message = message
         self.status_code = status_code
         self.raw_error = raw_error
+        self.recoverable = recoverable
 
         super().__init__(f"[{provider}] {message}")
+
+    def is_recoverable(self) -> bool:
+        """
+        Check if this error is recoverable through retry.
+
+        Returns:
+            True if the error might succeed on retry (network issues, rate limits),
+            False if retry is pointless (auth failures, JSON parse errors).
+        """
+        # If explicitly marked as non-recoverable, respect that
+        if not self.recoverable:
+            return False
+
+        # Check status code for known non-recoverable errors
+        if self.status_code is not None:
+            # 4xx client errors (except 429 rate limit) are not recoverable
+            if 400 <= self.status_code < 500 and self.status_code != 429:
+                return False
+
+        # Check message patterns for recoverable errors
+        message_lower = self.message.lower()
+        recoverable_patterns = (
+            'timeout', 'connection', 'network', 'rate_limit', 'rate limit',
+            'overloaded', 'service_unavailable', 'service unavailable',
+            'temporarily', 'retry', '429', '503', '502', '504'
+        )
+        non_recoverable_patterns = (
+            'json', 'parse', 'invalid', 'authentication', 'unauthorized',
+            'forbidden', 'not found', 'bad request', '401', '403', '404', '400'
+        )
+
+        # If explicitly mentions recoverable error type
+        if any(pattern in message_lower for pattern in recoverable_patterns):
+            return True
+
+        # If explicitly mentions non-recoverable error type
+        if any(pattern in message_lower for pattern in non_recoverable_patterns):
+            return False
+
+        # Default to recoverable for unknown errors
+        return True

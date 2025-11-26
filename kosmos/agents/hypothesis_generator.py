@@ -319,8 +319,12 @@ No explanation needed."""
         literature_context = ""
         if context_papers:
             literature_context = "Recent relevant literature:\n\n"
-            for i, paper in enumerate(context_papers[:5], 1):
-                literature_context += f"{i}. {paper.title} ({paper.year})\n"
+            # Filter out None papers and papers without titles
+            valid_papers = [p for p in context_papers[:5] if p is not None and p.title]
+            for i, paper in enumerate(valid_papers, 1):
+                title = paper.title or "Untitled"
+                year = paper.year or "N/A"
+                literature_context += f"{i}. {title} ({year})\n"
                 if paper.abstract:
                     literature_context += f"   Abstract: {paper.abstract[:200]}...\n"
                 literature_context += "\n"
@@ -377,7 +381,11 @@ No explanation needed."""
                         testability_score=hyp_data.get("testability_score"),
                         confidence_score=hyp_data.get("confidence_score"),
                         suggested_experiment_types=exp_types,
-                        related_papers=[p.arxiv_id or p.doi or p.title for p in context_papers if p.arxiv_id or p.doi],
+                        related_papers=[
+                            p.arxiv_id or p.doi or p.title
+                            for p in context_papers
+                            if p is not None and (p.arxiv_id or p.doi or p.title)
+                        ],
                         generated_by=self.agent_id
                     )
                     hypotheses.append(hypothesis)

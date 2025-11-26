@@ -283,7 +283,7 @@ class LiteratureAnalyzerAgent(BaseAgent):
             # Cache result
             self._cache_analysis(paper.primary_identifier, result.to_dict())
 
-            logger.info(f"Analyzed paper: {paper.title}")
+            logger.info(f"Analyzed paper: {paper.title or paper.primary_identifier}")
             return result
 
         except Exception as e:
@@ -721,10 +721,11 @@ class LiteratureAnalyzerAgent(BaseAgent):
         # Generate insights with Claude
         if generate_insights:
             try:
-                # Summarize papers
+                # Summarize papers (filter out None papers)
                 summaries = [
-                    f"{p.title}: {p.abstract[:200] if p.abstract else 'No abstract'}"
+                    f"{p.title or 'Untitled'}: {p.abstract[:200] if p.abstract else 'No abstract'}"
                     for p in papers[:20]  # Limit to avoid token issues
+                    if p is not None and p.title
                 ]
 
                 prompt = self._build_corpus_insights_prompt(summaries)
@@ -868,11 +869,12 @@ class LiteratureAnalyzerAgent(BaseAgent):
 
     def _build_summarization_prompt(self, paper: PaperMetadata) -> str:
         """Build prompt for paper summarization."""
-        text = f"Title: {paper.title}\n\n"
+        title = paper.title if paper and paper.title else "Unknown Title"
+        text = f"Title: {title}\n\n"
 
-        if paper.full_text:
+        if paper and paper.full_text:
             text += f"Text: {paper.full_text[:5000]}"  # Limit length
-        elif paper.abstract:
+        elif paper and paper.abstract:
             text += f"Abstract: {paper.abstract}"
         else:
             text += "Abstract: Not available"
@@ -895,8 +897,10 @@ Return structured output following the schema."""
 
     def _build_key_findings_prompt(self, paper: PaperMetadata, max_findings: int) -> str:
         """Build prompt for key findings extraction."""
-        text = f"Title: {paper.title}\n\n"
-        text += f"Abstract: {paper.abstract if paper.abstract else 'Not available'}"
+        title = paper.title if paper and paper.title else "Unknown Title"
+        abstract = paper.abstract if paper and paper.abstract else "Not available"
+        text = f"Title: {title}\n\n"
+        text += f"Abstract: {abstract}"
 
         prompt = f"""Extract the {max_findings} most important findings from this paper.
 
@@ -914,10 +918,12 @@ Return structured output."""
 
     def _build_methodology_prompt(self, paper: PaperMetadata) -> str:
         """Build prompt for methodology extraction."""
+        title = paper.title if paper and paper.title else "Unknown Title"
+        abstract = paper.abstract if paper and paper.abstract else "Not available"
         return f"""Identify the research methods used in this paper.
 
-Title: {paper.title}
-Abstract: {paper.abstract if paper.abstract else 'Not available'}
+Title: {title}
+Abstract: {abstract}
 
 Categorize methods as:
 - experimental_methods: Lab or field experiments
