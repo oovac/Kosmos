@@ -94,12 +94,13 @@ ENV PYTHONUNBUFFERED=1 \
 # Expose port (if running web service)
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import kosmos; print('healthy')" || exit 1
+# Health check - use HTTP endpoint when running as web server
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/health || python -c "import kosmos; print('healthy')" || exit 1
 
-# Default command
-CMD ["python", "-m", "kosmos.cli.main", "--help"]
+# Default command - start web server
+# For CLI usage: docker run kosmos:latest kosmos --help
+CMD ["python", "-m", "uvicorn", "kosmos.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # =============================================================================
 # Build Info

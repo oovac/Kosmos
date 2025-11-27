@@ -1,7 +1,10 @@
 """
 API module for Kosmos AI Scientist.
 
-Provides health check endpoints and API utilities.
+Provides:
+- FastAPI web server for production deployment
+- Health check endpoints for monitoring
+- REST API for research operations
 """
 
 from kosmos.api.health import (
@@ -19,3 +22,9 @@ __all__ = [
     "HealthChecker",
     "get_health_checker"
 ]
+
+# Import app lazily to avoid circular imports
+def get_app():
+    """Get the FastAPI application instance."""
+    from kosmos.api.server import app
+    return app

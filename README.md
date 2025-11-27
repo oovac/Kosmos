@@ -209,6 +209,34 @@ pytest tests/unit/compression/ tests/unit/orchestration/ \
        tests/unit/world_model/test_artifacts.py -v
 ```
 
+### Cloud Deployment (Northflank)
+
+Deploy Kosmos to [Northflank](https://northflank.com/) with one click:
+
+[![Deploy to Northflank](https://img.shields.io/badge/Deploy%20to-Northflank-blue?style=for-the-badge)](https://app.northflank.com/s/account/templates/new?template=https://raw.githubusercontent.com/jimmc414/Kosmos/master/northflank.json)
+
+Or deploy using the CLI:
+
+```bash
+# Install Northflank CLI
+npm install -g @northflank/cli
+
+# Deploy from template
+northflank login
+northflank template create \
+  --file northflank.json \
+  --project kosmos-prod \
+  --arguments ANTHROPIC_API_KEY=sk-ant-your-key
+```
+
+The deployment includes:
+- PostgreSQL database
+- Redis cache
+- Automatic builds from GitHub
+- Health monitoring
+
+See [Northflank Deployment Guide](docs/deployment/northflank-deployment.md) for details.
+
 ### Run Research Workflow
 
 ```python

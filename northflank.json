@@ -1,0 +1,225 @@
+{
+  "$schema": "https://northflank.com/schemas/v1/template",
+  "apiVersion": "v1",
+  "name": "kosmos-ai-scientist",
+  "description": "Kosmos AI Scientist - Autonomous scientific research system powered by Claude",
+  "spec": {
+    "kind": "Workflow",
+    "spec": {
+      "type": "sequential",
+      "steps": [
+        {
+          "kind": "SecretGroup",
+          "spec": {
+            "name": "kosmos-secrets",
+            "secretType": "environment-arguments",
+            "description": "API keys and sensitive configuration for Kosmos",
+            "priority": 10,
+            "secrets": {
+              "variables": {
+                "ANTHROPIC_API_KEY": "${args.ANTHROPIC_API_KEY}",
+                "OPENAI_API_KEY": "${args.OPENAI_API_KEY}",
+                "NEO4J_PASSWORD": "kosmos-password"
+              }
+            },
+            "restrictions": {
+              "restricted": false,
+              "projects": [],
+              "nfObjects": []
+            }
+          }
+        },
+        {
+          "kind": "Addon",
+          "ref": "postgres",
+          "spec": {
+            "name": "kosmos-postgres",
+            "type": "postgresql",
+            "version": "15-latest",
+            "billing": {
+              "deploymentPlan": "nf-compute-50",
+              "storageClass": "ssd",
+              "storage": 10240,
+              "replicas": 1
+            },
+            "typeSpecificSettings": {
+              "postgresql": {
+                "database": "kosmos"
+              }
+            },
+            "tlsEnabled": true,
+            "externalAccessEnabled": false
+          }
+        },
+        {
+          "kind": "Addon",
+          "ref": "redis",
+          "spec": {
+            "name": "kosmos-redis",
+            "type": "redis",
+            "version": "7-latest",
+            "billing": {
+              "deploymentPlan": "nf-compute-20",
+              "storageClass": "ssd",
+              "storage": 1024,
+              "replicas": 1
+            },
+            "typeSpecificSettings": {
+              "redis": {
+                "maxmemoryPolicy": "allkeys-lru"
+              }
+            },
+            "tlsEnabled": true,
+            "externalAccessEnabled": false
+          }
+        },
+        {
+          "kind": "BuildService",
+          "ref": "build",
+          "spec": {
+            "name": "kosmos-build",
+            "billing": {
+              "deploymentPlan": "nf-compute-200"
+            },
+            "vcsData": {
+              "projectType": "github",
+              "projectUrl": "${args.GITHUB_REPO}"
+            },
+            "buildSettings": {
+              "dockerfile": {
+                "buildEngine": "kaniko",
+                "dockerFilePath": "/Dockerfile",
+                "dockerWorkDir": "/"
+              }
+            },
+            "buildArguments": {},
+            "buildConfiguration": {
+              "pathIgnoreRules": [
+                "*.md",
+                "docs/**",
+                "tests/**",
+                "kosmos-figures/**",
+                ".git/**"
+              ],
+              "isAllowList": false
+            }
+          }
+        },
+        {
+          "kind": "DeploymentService",
+          "ref": "app",
+          "spec": {
+            "name": "kosmos-app",
+            "billing": {
+              "deploymentPlan": "nf-compute-200"
+            },
+            "deployment": {
+              "instances": 1,
+              "docker": {
+                "configType": "default"
+              },
+              "internal": {
+                "id": "${refs.build.id}",
+                "branch": "master",
+                "buildSHA": "latest"
+              }
+            },
+            "runtimeEnvironment": {
+              "LOG_LEVEL": "INFO",
+              "PYTHONUNBUFFERED": "1",
+              "PYTHONDONTWRITEBYTECODE": "1",
+              "PYTHONPATH": "/app",
+              "KOSMOS_DATA_DIR": "/app/data",
+              "KOSMOS_LOG_DIR": "/app/logs",
+              "KOSMOS_CACHE_DIR": "/app/cache",
+              "REDIS_ENABLED": "true",
+              "CLAUDE_MODEL": "claude-sonnet-4-20250514",
+              "ENABLE_CONCURRENT_OPERATIONS": "true",
+              "MAX_CONCURRENT_EXPERIMENTS": "4",
+              "DATABASE_URL": "${refs.postgres.database.DATABASE_URL}",
+              "REDIS_URL": "${refs.redis.database.REDIS_URL}"
+            },
+            "runtimeFiles": {},
+            "ports": [
+              {
+                "name": "http",
+                "internalPort": 8000,
+                "public": true,
+                "protocol": "HTTP",
+                "security": {
+                  "policies": [],
+                  "credentials": []
+                },
+                "domains": [],
+                "disableNfDomain": false
+              }
+            ],
+            "healthChecks": [
+              {
+                "type": "http",
+                "protocol": "HTTP",
+                "port": "http",
+                "path": "/health",
+                "initialDelaySeconds": 30,
+                "periodSeconds": 30,
+                "timeoutSeconds": 10,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              }
+            ]
+          }
+        },
+        {
+          "kind": "Job",
+          "ref": "migrate",
+          "spec": {
+            "name": "kosmos-db-migrate",
+            "billing": {
+              "deploymentPlan": "nf-compute-50"
+            },
+            "runOnSourceChange": "never",
+            "activeDeadlineSeconds": 600,
+            "backoffLimit": 3,
+            "deployment": {
+              "docker": {
+                "configType": "customCommand",
+                "customCommand": "alembic upgrade head"
+              },
+              "internal": {
+                "id": "${refs.build.id}",
+                "branch": "master",
+                "buildSHA": "latest"
+              }
+            },
+            "runtimeEnvironment": {
+              "PYTHONPATH": "/app",
+              "LOG_LEVEL": "INFO",
+              "DATABASE_URL": "${refs.postgres.database.DATABASE_URL}"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "options": {
+    "autoRun": false
+  },
+  "arguments": {
+    "ANTHROPIC_API_KEY": {
+      "description": "Anthropic API key for Claude access (required)",
+      "required": true,
+      "secret": true
+    },
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API key (optional, for OpenAI provider)",
+      "required": false,
+      "secret": true,
+      "default": ""
+    },
+    "GITHUB_REPO": {
+      "description": "GitHub repository URL",
+      "required": false,
+      "default": "https://github.com/jimmc414/Kosmos"
+    }
+  }
+}

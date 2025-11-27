@@ -37,6 +37,14 @@ help:
 	@echo "  make db-migrate     - Run database migrations"
 	@echo "  make db-reset       - Reset database (DESTRUCTIVE)"
 	@echo ""
+	@echo "API Server:"
+	@echo "  make server         - Start API server locally (with reload)"
+	@echo "  make server-prod    - Start API server (production mode)"
+	@echo ""
+	@echo "Northflank Deployment:"
+	@echo "  make northflank-validate - Validate northflank.json template"
+	@echo "  make northflank-deploy   - Deploy to Northflank"
+	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. make setup-docker    # Install Docker (one-time)"
 	@echo "  2. make install         # Setup environment"
@@ -270,6 +278,27 @@ docs:
 docs-serve:
 	@echo "📚 Serving documentation..."
 	@python -m http.server -d docs/_build/html 8080
+
+#==============================================================================
+# Northflank Deployment
+#==============================================================================
+
+northflank-validate:
+	@echo "🔍 Validating Northflank template..."
+	@python scripts/validate_northflank.py
+
+northflank-deploy:
+	@echo "🚀 Deploying to Northflank..."
+	@echo "Make sure you have the Northflank CLI installed: npm install -g @northflank/cli"
+	@northflank template create --file northflank.json --project kosmos
+
+server:
+	@echo "🌐 Starting API server locally..."
+	@uvicorn kosmos.api.server:app --host 0.0.0.0 --port 8000 --reload
+
+server-prod:
+	@echo "🌐 Starting API server (production)..."
+	@uvicorn kosmos.api.server:app --host 0.0.0.0 --port 8000 --workers 4
 
 #==============================================================================
 # Environment Information
