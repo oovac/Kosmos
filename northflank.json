@@ -1,15 +1,24 @@
 {
   "$schema": "https://northflank.com/schemas/v1/template",
-  "apiVersion": "v1",
-  "name": "kosmos-ai-scientist",
-  "description": "Kosmos AI Scientist - Autonomous scientific research system powered by Claude",
+  "apiVersion": "v1.2",
   "spec": {
     "kind": "Workflow",
     "spec": {
       "type": "sequential",
       "steps": [
         {
+          "kind": "Project",
+          "ref": "project",
+          "spec": {
+            "name": "kosmos",
+            "description": "Kosmos AI Scientist - Autonomous scientific research",
+            "region": "europe-west",
+            "color": "#6366F1"
+          }
+        },
+        {
           "kind": "SecretGroup",
+          "ref": "secrets",
           "spec": {
             "name": "kosmos-secrets",
             "secretType": "environment-arguments",
@@ -18,14 +27,14 @@
             "secrets": {
               "variables": {
                 "ANTHROPIC_API_KEY": "${args.ANTHROPIC_API_KEY}",
-                "OPENAI_API_KEY": "${args.OPENAI_API_KEY}",
-                "NEO4J_PASSWORD": "kosmos-password"
+                "OPENAI_API_KEY": "${args.OPENAI_API_KEY}"
               }
             },
+            "projectId": "${refs.project.id}",
             "restrictions": {
               "restricted": false,
-              "projects": [],
-              "nfObjects": []
+              "nfObjects": [],
+              "tags": []
             }
           }
         },
@@ -33,22 +42,19 @@
           "kind": "Addon",
           "ref": "postgres",
           "spec": {
-            "name": "kosmos-postgres",
+            "name": "kosmos1-postgres",
             "type": "postgresql",
             "version": "15-latest",
             "billing": {
               "deploymentPlan": "nf-compute-50",
-              "storageClass": "ssd",
+              "storageClass": "nvme",
               "storage": 10240,
               "replicas": 1
             },
-            "typeSpecificSettings": {
-              "postgresql": {
-                "database": "kosmos"
-              }
-            },
+            "typeSpecificSettings": {},
             "tlsEnabled": true,
-            "externalAccessEnabled": false
+            "externalAccessEnabled": false,
+            "projectId": "${refs.project.id}"
           }
         },
         {
@@ -60,53 +66,18 @@
             "version": "7-latest",
             "billing": {
               "deploymentPlan": "nf-compute-20",
-              "storageClass": "ssd",
-              "storage": 1024,
+              "storage": 4096,
+              "storageClass": "nvme",
               "replicas": 1
             },
-            "typeSpecificSettings": {
-              "redis": {
-                "maxmemoryPolicy": "allkeys-lru"
-              }
-            },
+            "typeSpecificSettings": {},
             "tlsEnabled": true,
-            "externalAccessEnabled": false
+            "externalAccessEnabled": false,
+            "projectId": "${refs.project.id}"
           }
         },
         {
-          "kind": "BuildService",
-          "ref": "build",
-          "spec": {
-            "name": "kosmos-build",
-            "billing": {
-              "deploymentPlan": "nf-compute-200"
-            },
-            "vcsData": {
-              "projectType": "github",
-              "projectUrl": "${args.GITHUB_REPO}"
-            },
-            "buildSettings": {
-              "dockerfile": {
-                "buildEngine": "kaniko",
-                "dockerFilePath": "/Dockerfile",
-                "dockerWorkDir": "/"
-              }
-            },
-            "buildArguments": {},
-            "buildConfiguration": {
-              "pathIgnoreRules": [
-                "*.md",
-                "docs/**",
-                "tests/**",
-                "kosmos-figures/**",
-                ".git/**"
-              ],
-              "isAllowList": false
-            }
-          }
-        },
-        {
-          "kind": "DeploymentService",
+          "kind": "CombinedService",
           "ref": "app",
           "spec": {
             "name": "kosmos-app",
@@ -114,15 +85,48 @@
               "deploymentPlan": "nf-compute-200"
             },
             "deployment": {
-              "instances": 1,
-              "docker": {
-                "configType": "default"
-              },
-              "internal": {
-                "id": "${refs.build.id}",
-                "branch": "master",
-                "buildSHA": "latest"
+              "instances": 1
+            },
+            "ports": [
+              {
+                "name": "http",
+                "internalPort": 8000,
+                "public": true,
+                "protocol": "HTTP",
+                "security": {
+                  "credentials": [],
+                  "policies": [],
+                  "sso": {}
+                }
               }
+            ],
+            "healthChecks": [
+              {
+                "type": "livenessProbe",
+                "protocol": "HTTP",
+                "port": 8000,
+                "path": "/health",
+                "initialDelaySeconds": 30,
+                "periodSeconds": 30,
+                "timeoutSeconds": 10,
+                "failureThreshold": 3
+              }
+            ],
+            "buildSettings": {
+              "dockerfile": {
+                "buildEngine": "kaniko",
+                "dockerFilePath": "/Dockerfile",
+                "dockerWorkDir": "/"
+              }
+            },
+            "buildConfiguration": {
+              "pathIgnoreRules": [],
+              "isAllowList": false
+            },
+            "vcsData": {
+              "projectType": "github",
+              "projectUrl": "${args.GITHUB_REPO}",
+              "projectBranch": "${args.GITHUB_BRANCH}"
             },
             "runtimeEnvironment": {
               "LOG_LEVEL": "INFO",
@@ -135,74 +139,15 @@
               "REDIS_ENABLED": "true",
               "CLAUDE_MODEL": "claude-sonnet-4-20250514",
               "ENABLE_CONCURRENT_OPERATIONS": "true",
-              "MAX_CONCURRENT_EXPERIMENTS": "4",
-              "DATABASE_URL": "${refs.postgres.database.DATABASE_URL}",
-              "REDIS_URL": "${refs.redis.database.REDIS_URL}"
+              "MAX_CONCURRENT_EXPERIMENTS": "4"
             },
-            "runtimeFiles": {},
-            "ports": [
-              {
-                "name": "http",
-                "internalPort": 8000,
-                "public": true,
-                "protocol": "HTTP",
-                "security": {
-                  "policies": [],
-                  "credentials": []
-                },
-                "domains": [],
-                "disableNfDomain": false
-              }
-            ],
-            "healthChecks": [
-              {
-                "type": "http",
-                "protocol": "HTTP",
-                "port": "http",
-                "path": "/health",
-                "initialDelaySeconds": 30,
-                "periodSeconds": 30,
-                "timeoutSeconds": 10,
-                "successThreshold": 1,
-                "failureThreshold": 3
-              }
-            ]
-          }
-        },
-        {
-          "kind": "Job",
-          "ref": "migrate",
-          "spec": {
-            "name": "kosmos-db-migrate",
-            "billing": {
-              "deploymentPlan": "nf-compute-50"
-            },
-            "runOnSourceChange": "never",
-            "activeDeadlineSeconds": 600,
-            "backoffLimit": 3,
-            "deployment": {
-              "docker": {
-                "configType": "customCommand",
-                "customCommand": "alembic upgrade head"
-              },
-              "internal": {
-                "id": "${refs.build.id}",
-                "branch": "master",
-                "buildSHA": "latest"
-              }
-            },
-            "runtimeEnvironment": {
-              "PYTHONPATH": "/app",
-              "LOG_LEVEL": "INFO",
-              "DATABASE_URL": "${refs.postgres.database.DATABASE_URL}"
-            }
+            "projectId": "${refs.project.id}",
+            "disabledCI": false,
+            "buildArguments": {}
           }
         }
       ]
     }
-  },
-  "options": {
-    "autoRun": false
   },
   "arguments": {
     "ANTHROPIC_API_KEY": {
@@ -219,7 +164,12 @@
     "GITHUB_REPO": {
       "description": "GitHub repository URL",
       "required": false,
-      "default": "https://github.com/jimmc414/Kosmos"
+      "default": "https://github.com/oovac/Kosmos"
+    },
+    "GITHUB_BRANCH": {
+      "description": "GitHub branch to deploy",
+      "required": false,
+      "default": "master"
     }
   }
 }
